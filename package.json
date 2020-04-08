@@ -1,6 +1,6 @@
 {
   "name": "get-domain-certificate",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Get a website's SSL certificate from domain name",
   "main": "index.js",
   "scripts": {
@@ -14,6 +14,10 @@
     "https",
     "secure socket"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:nav-een/get-domain-certificate.git"
+  },
   "license": "MIT",
   "devDependencies": {
     "jest": "^25.3.0"
