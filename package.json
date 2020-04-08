@@ -1,0 +1,21 @@
+{
+  "name": "get-domain-certificate",
+  "version": "1.0.0",
+  "description": "Get a website's SSL certificate from domain name",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "author": "Naveen K R",
+  "keywords": [
+    "ssl",
+    "certificate",
+    "socket",
+    "https",
+    "secure socket"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^25.3.0"
+  }
+}
