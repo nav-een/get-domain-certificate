@@ -42,7 +42,12 @@ const getCertificate = (resolve, reject, hostname, protocol, port = 443) => {
             }
             resolve(JSON.parse(JSON.stringify(certificate)));
         }
-    });
+    }).on('error', (e) => {
+        reject({
+            message: 'No certicate found in domain:',
+            hostname
+        });
+      });
 
 }
 
