@@ -1,38 +1,51 @@
 const https = require('https');
-const url = require('url');
 
-module.exports = (domain) => {
-    let URLObj = url.parse(domain)
+module.exports = (domain, depth = 0) => {
+    const MAX_RECURSION_DEPTH = 2;
 
-    if (!URLObj.protocol) {
-        return module.exports('https://' + domain)
-    } else if (URLObj.protocol == 'http:' || URLObj.pathname != '/') {
-        return module.exports('https://' + URLObj.host)
+    if (depth > MAX_RECURSION_DEPTH) {
+        return Promise.reject({ message: "Maximum recursion depth exceeded while normalizing domain" });
+    }
+
+    let URLObj;
+
+    try {
+        URLObj = new URL(domain);
+    } catch {
+        // new URL() throws if no protocol; prepend https:// and retry
+        return module.exports('https://' + domain, depth + 1);
+    }
+
+    if (URLObj.protocol === 'http:' || URLObj.pathname !== '/') {
+        return module.exports('https://' + URLObj.host, depth + 1);
     }
 
     return new Promise((resolve, reject) => {
-        if (URLObj.protocol != 'https:' || !URLObj.hostname) {
+        if (URLObj.protocol !== 'https:' || !URLObj.hostname) {
             reject({ message: "Invalid domain: "+URLObj.hostname })
         } else {
-            return getCertificate(resolve, reject, URLObj.hostname, URLObj.protocol)
+            getCertificate(resolve, reject, URLObj.hostname, URLObj.protocol);
         }
     })
 }
 
 
 const getCertificate = (resolve, reject, hostname, protocol, port = 443) => {
-    https.get({
+    const REQUEST_TIMEOUT = 10000; // 10 seconds
+
+    const request = https.get({
         hostname,
         agent: false,
         rejectUnauthorized: false,
         ciphers: 'ALL',
         port,
-        protocol
+        protocol,
+        timeout: REQUEST_TIMEOUT
     }, (res) => {
         let certificate = res.socket.getPeerCertificate();
         if (!certificate) {
             reject({
-                message: 'No certicate found in domain:',
+                message: 'No certificate found in domain:',
                 hostname
             });
         } else {
@@ -44,15 +57,25 @@ const getCertificate = (resolve, reject, hostname, protocol, port = 443) => {
         }
     }).on('error', (e) => {
         reject({
-            message: 'No certicate found in domain:',
+            message: 'No certificate found in domain:',
             hostname
         });
-      });
+    }).on('timeout', () => {
+        request.destroy();
+        reject({
+            message: 'Request timeout while fetching certificate:',
+            hostname
+        });
+    });
 
 }
 
 const parsePEM = (str) => {
-    return returnString = `-----BEGIN CERTIFICATE-----\n${str.match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----`;
+    const lines = str.match(/.{1,64}/g);
+    if (!lines) {
+        return `-----BEGIN CERTIFICATE-----\n\n-----END CERTIFICATE-----`;
+    }
+    return `-----BEGIN CERTIFICATE-----\n${lines.join('\n')}\n-----END CERTIFICATE-----`;
 }
 
 const generateExtendedProperties = (certificate) => {
@@ -80,7 +103,6 @@ const generateExtendedProperties = (certificate) => {
 }
 
 const daysToExpiry = (date) => {
-    let thisDate = new Date();
     const timeDiff = (new Date(date)) - (new Date());
     return Math.round(timeDiff / (1000 * 60 * 60 * 24))
 }

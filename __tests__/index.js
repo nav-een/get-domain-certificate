@@ -42,7 +42,7 @@ describe('Github Certificate Baseline Check', () => {
 
 });
 
-describe('Goolgle Certificate Baseline Check', () => {
+describe('Google Certificate Baseline Check', () => {
     it('not expired', () => {
         expect(googleCertificate.expired).toBe(false);
     });
@@ -86,7 +86,7 @@ describe('Unit Tests - Network Errors and Certificate Issues (Lines 34, 46)', ()
     it('should reject when getPeerCertificate returns null (Line 34)', (done) => {
         const mockSocket = { getPeerCertificate: () => null };
         const mockResponse = { socket: mockSocket };
-        const mockRequest = { on: jest.fn() };
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
 
         // Mock https.get to call the callback immediately
         jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
@@ -99,7 +99,7 @@ describe('Unit Tests - Network Errors and Certificate Issues (Lines 34, 46)', ()
                 done(new Error('Should have rejected'));
             })
             .catch((error) => {
-                expect(error.message).toBe('No certicate found in domain:');
+                expect(error.message).toBe('No certificate found in domain:');
                 expect(error.hostname).toBe('example.com');
                 jest.restoreAllMocks();
                 done();
@@ -108,11 +108,13 @@ describe('Unit Tests - Network Errors and Certificate Issues (Lines 34, 46)', ()
 
     it('should reject on https.get error (Line 46)', (done) => {
         const mockRequest = {
-            on: jest.fn((event, callback) => {
+            on: jest.fn(function(event, callback) {
                 if (event === 'error') {
                     setImmediate(() => callback(new Error('Network error')));
                 }
-            })
+                return mockRequest;
+            }),
+            destroy: jest.fn()
         };
 
         jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
@@ -124,7 +126,7 @@ describe('Unit Tests - Network Errors and Certificate Issues (Lines 34, 46)', ()
                 done(new Error('Should have rejected'));
             })
             .catch((error) => {
-                expect(error.message).toBe('No certicate found in domain:');
+                expect(error.message).toBe('No certificate found in domain:');
                 expect(error.hostname).toBe('example.com');
                 jest.restoreAllMocks();
                 done();
@@ -143,7 +145,7 @@ describe('Unit Tests - Self-Signed Certificate (Line 61)', () => {
         };
         const mockSocket = { getPeerCertificate: () => mockCertificate };
         const mockResponse = { socket: mockSocket };
-        const mockRequest = { on: jest.fn() };
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
 
         jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
             callback(mockResponse);
@@ -172,7 +174,7 @@ describe('Unit Tests - Self-Signed Certificate (Line 61)', () => {
         };
         const mockSocket = { getPeerCertificate: () => mockCertificate };
         const mockResponse = { socket: mockSocket };
-        const mockRequest = { on: jest.fn() };
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
 
         jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
             callback(mockResponse);
@@ -203,7 +205,7 @@ describe('Unit Tests - Expired Certificate (Line 71)', () => {
         };
         const mockSocket = { getPeerCertificate: () => mockCertificate };
         const mockResponse = { socket: mockSocket };
-        const mockRequest = { on: jest.fn() };
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
 
         jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
             callback(mockResponse);
@@ -233,7 +235,7 @@ describe('Unit Tests - Expired Certificate (Line 71)', () => {
         };
         const mockSocket = { getPeerCertificate: () => mockCertificate };
         const mockResponse = { socket: mockSocket };
-        const mockRequest = { on: jest.fn() };
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
 
         jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
             callback(mockResponse);
@@ -262,7 +264,7 @@ describe('Unit Tests - Expired Certificate (Line 71)', () => {
         };
         const mockSocket = { getPeerCertificate: () => mockCertificate };
         const mockResponse = { socket: mockSocket };
-        const mockRequest = { on: jest.fn() };
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
 
         jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
             callback(mockResponse);
@@ -294,7 +296,7 @@ describe('Unit Tests - PEM Certificate Property (Line 75)', () => {
         };
         const mockSocket = { getPeerCertificate: () => mockCertificate };
         const mockResponse = { socket: mockSocket };
-        const mockRequest = { on: jest.fn() };
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
 
         jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
             callback(mockResponse);
@@ -323,7 +325,7 @@ describe('Unit Tests - PEM Certificate Property (Line 75)', () => {
         };
         const mockSocket = { getPeerCertificate: () => mockCertificate };
         const mockResponse = { socket: mockSocket };
-        const mockRequest = { on: jest.fn() };
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
 
         jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
             callback(mockResponse);
@@ -335,6 +337,70 @@ describe('Unit Tests - PEM Certificate Property (Line 75)', () => {
                 expect(result.PEM).toBeDefined();
                 expect(result.PEM).toContain('-----BEGIN CERTIFICATE-----');
                 expect(result.PEM).toContain('-----END CERTIFICATE-----');
+                jest.restoreAllMocks();
+                done();
+            })
+            .catch((error) => {
+                jest.restoreAllMocks();
+                done(error);
+            });
+    });
+});
+
+describe('Unit Tests - Recursion Depth Guard (Line 7)', () => {
+    it('should reject when maximum recursion depth is exceeded', async () => {
+        // Call with depth > 2 directly to test the guard
+        await expect(getDomainCertificate('example.com', 3))
+            .rejects.toEqual({ message: "Maximum recursion depth exceeded while normalizing domain" });
+    });
+});
+
+describe('Unit Tests - Request Timeout (Lines 64-65)', () => {
+    it('should reject and destroy socket on timeout', (done) => {
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            setImmediate(() => {
+                const timeoutHandler = mockRequest.on.mock.calls.find(c => c[0] === 'timeout');
+                if (timeoutHandler) timeoutHandler[1]();
+            });
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then(() => {
+                done(new Error('Should have rejected'));
+            })
+            .catch((error) => {
+                expect(error.message).toBe('Request timeout while fetching certificate:');
+                expect(error.hostname).toBe('example.com');
+                expect(mockRequest.destroy).toHaveBeenCalled();
+                jest.restoreAllMocks();
+                done();
+            });
+    });
+});
+
+describe('Unit Tests - parsePEM Null Safety (Line 76)', () => {
+    it('should handle empty raw certificate data', (done) => {
+        const mockCertificate = {
+            subject: { CN: 'example.com' },
+            issuer: { CN: 'CA' },
+            valid_to: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString(),
+            raw: Buffer.from('')
+        };
+        const mockSocket = { getPeerCertificate: () => mockCertificate };
+        const mockResponse = { socket: mockSocket };
+        const mockRequest = { on: jest.fn().mockReturnThis(), destroy: jest.fn() };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            callback(mockResponse);
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then((result) => {
+                expect(result.PEM).toBe('-----BEGIN CERTIFICATE-----\n\n-----END CERTIFICATE-----');
                 jest.restoreAllMocks();
                 done();
             })
