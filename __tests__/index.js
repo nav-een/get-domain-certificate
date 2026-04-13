@@ -65,3 +65,283 @@ describe('Goolgle Certificate Baseline Check', () => {
 
 });
 
+// Unit tests for error cases and edge cases with mocked https
+describe('Unit Tests - Invalid Domain (Line 15)', () => {
+    it('should reject when protocol is not https', async () => {
+        await expect(getDomainCertificate('ftp://example.com')).rejects.toEqual(
+            expect.objectContaining({ message: expect.stringContaining('Invalid domain') })
+        );
+    });
+});
+
+describe('Unit Tests - Network Errors and Certificate Issues (Lines 34, 46)', () => {
+    let httpsMock;
+
+    beforeEach(() => {
+        // Save original https module
+        httpsMock = require('https');
+        jest.clearAllMocks();
+    });
+
+    it('should reject when getPeerCertificate returns null (Line 34)', (done) => {
+        const mockSocket = { getPeerCertificate: () => null };
+        const mockResponse = { socket: mockSocket };
+        const mockRequest = { on: jest.fn() };
+
+        // Mock https.get to call the callback immediately
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            callback(mockResponse);
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then(() => {
+                done(new Error('Should have rejected'));
+            })
+            .catch((error) => {
+                expect(error.message).toBe('No certicate found in domain:');
+                expect(error.hostname).toBe('example.com');
+                jest.restoreAllMocks();
+                done();
+            });
+    });
+
+    it('should reject on https.get error (Line 46)', (done) => {
+        const mockRequest = {
+            on: jest.fn((event, callback) => {
+                if (event === 'error') {
+                    setImmediate(() => callback(new Error('Network error')));
+                }
+            })
+        };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then(() => {
+                done(new Error('Should have rejected'));
+            })
+            .catch((error) => {
+                expect(error.message).toBe('No certicate found in domain:');
+                expect(error.hostname).toBe('example.com');
+                jest.restoreAllMocks();
+                done();
+            });
+    });
+});
+
+describe('Unit Tests - Self-Signed Certificate (Line 61)', () => {
+    it('should detect self-signed certificate when subject.CN equals issuer.CN', (done) => {
+        const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString();
+        const mockCertificate = {
+            subject: { CN: 'example.com' },
+            issuer: { CN: 'example.com' },
+            valid_to: futureDate,
+            raw: Buffer.from('test')
+        };
+        const mockSocket = { getPeerCertificate: () => mockCertificate };
+        const mockResponse = { socket: mockSocket };
+        const mockRequest = { on: jest.fn() };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            callback(mockResponse);
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then((result) => {
+                expect(result.selfSigned).toBe(true);
+                jest.restoreAllMocks();
+                done();
+            })
+            .catch((error) => {
+                jest.restoreAllMocks();
+                done(error);
+            });
+    });
+
+    it('should detect non-self-signed certificate when CNs differ', (done) => {
+        const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString();
+        const mockCertificate = {
+            subject: { CN: 'example.com' },
+            issuer: { CN: 'CA Authority' },
+            valid_to: futureDate,
+            raw: Buffer.from('test')
+        };
+        const mockSocket = { getPeerCertificate: () => mockCertificate };
+        const mockResponse = { socket: mockSocket };
+        const mockRequest = { on: jest.fn() };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            callback(mockResponse);
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then((result) => {
+                expect(result.selfSigned).toBe(false);
+                jest.restoreAllMocks();
+                done();
+            })
+            .catch((error) => {
+                jest.restoreAllMocks();
+                done(error);
+            });
+    });
+});
+
+describe('Unit Tests - Expired Certificate (Line 71)', () => {
+    it('should mark certificate as expired when valid_to is in the past', (done) => {
+        const expiredDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toUTCString();
+        const mockCertificate = {
+            subject: { CN: 'example.com' },
+            issuer: { CN: 'CA' },
+            valid_to: expiredDate,
+            raw: Buffer.from('test')
+        };
+        const mockSocket = { getPeerCertificate: () => mockCertificate };
+        const mockResponse = { socket: mockSocket };
+        const mockRequest = { on: jest.fn() };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            callback(mockResponse);
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then((result) => {
+                expect(result.expired).toBe(true);
+                expect(result.daysToExpiry).toBeLessThanOrEqual(0);
+                jest.restoreAllMocks();
+                done();
+            })
+            .catch((error) => {
+                jest.restoreAllMocks();
+                done(error);
+            });
+    });
+
+    it('should mark certificate as not expired when valid_to is in the future', (done) => {
+        const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString();
+        const mockCertificate = {
+            subject: { CN: 'example.com' },
+            issuer: { CN: 'CA' },
+            valid_to: futureDate,
+            raw: Buffer.from('test')
+        };
+        const mockSocket = { getPeerCertificate: () => mockCertificate };
+        const mockResponse = { socket: mockSocket };
+        const mockRequest = { on: jest.fn() };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            callback(mockResponse);
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then((result) => {
+                expect(result.expired).toBe(false);
+                expect(result.daysToExpiry).toBeGreaterThan(0);
+                jest.restoreAllMocks();
+                done();
+            })
+            .catch((error) => {
+                jest.restoreAllMocks();
+                done(error);
+            });
+    });
+
+    it('should not set expired property when valid_to is missing (Line 66)', (done) => {
+        const mockCertificate = {
+            subject: { CN: 'example.com' },
+            issuer: { CN: 'CA' },
+            raw: Buffer.from('test')
+            // valid_to is intentionally missing
+        };
+        const mockSocket = { getPeerCertificate: () => mockCertificate };
+        const mockResponse = { socket: mockSocket };
+        const mockRequest = { on: jest.fn() };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            callback(mockResponse);
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then((result) => {
+                expect(result.expired).toBeUndefined();
+                expect(result.daysToExpiry).toBeUndefined();
+                jest.restoreAllMocks();
+                done();
+            })
+            .catch((error) => {
+                jest.restoreAllMocks();
+                done(error);
+            });
+    });
+});
+
+describe('Unit Tests - PEM Certificate Property (Line 75)', () => {
+    it('should not set PEM property when raw certificate data is missing', (done) => {
+        const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString();
+        const mockCertificate = {
+            subject: { CN: 'example.com' },
+            issuer: { CN: 'CA' },
+            valid_to: futureDate
+            // raw is intentionally missing
+        };
+        const mockSocket = { getPeerCertificate: () => mockCertificate };
+        const mockResponse = { socket: mockSocket };
+        const mockRequest = { on: jest.fn() };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            callback(mockResponse);
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then((result) => {
+                expect(result.PEM).toBeUndefined();
+                jest.restoreAllMocks();
+                done();
+            })
+            .catch((error) => {
+                jest.restoreAllMocks();
+                done(error);
+            });
+    });
+
+    it('should set PEM property when raw certificate data exists', (done) => {
+        const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString();
+        const mockCertificate = {
+            subject: { CN: 'example.com' },
+            issuer: { CN: 'CA' },
+            valid_to: futureDate,
+            raw: Buffer.from('ABCDEFGHIJKLMNOP')
+        };
+        const mockSocket = { getPeerCertificate: () => mockCertificate };
+        const mockResponse = { socket: mockSocket };
+        const mockRequest = { on: jest.fn() };
+
+        jest.spyOn(require('https'), 'get').mockImplementation((options, callback) => {
+            callback(mockResponse);
+            return mockRequest;
+        });
+
+        getDomainCertificate('https://example.com')
+            .then((result) => {
+                expect(result.PEM).toBeDefined();
+                expect(result.PEM).toContain('-----BEGIN CERTIFICATE-----');
+                expect(result.PEM).toContain('-----END CERTIFICATE-----');
+                jest.restoreAllMocks();
+                done();
+            })
+            .catch((error) => {
+                jest.restoreAllMocks();
+                done(error);
+            });
+    });
+});
+
